@@ -614,7 +614,6 @@ static void pp_Error ( const Error* err, Bool allow_db_attach, Bool xml )
 
       /* postamble */
       VG_(printf_xml)("</error>\n");
-      VG_(printf_xml)("\n");
 
    } else {
 

@@ -547,11 +547,20 @@ static OpenFd *allocated_fds = NULL;
 /* Count of open file descriptors. */
 static Int fd_count = 0;
 
+/* Bool array, if True, std fd is open, if False, closed */
+static Bool std_fds[3] = {True, True, True};
 
-/* Note the fact that a file descriptor was just closed. */
+
+/* Note the fact that a file descriptor was just closed.
+ *  Modify to test for std fds closed.  */
 void ML_(record_fd_close)(Int fd)
 {
    OpenFd *i = allocated_fds;
+
+   for (int index = 0; index < 3; index++) {
+      if (fd == index)
+         std_fds[index] = False;
+   }
 
    if (fd >= VG_(fd_hard_limit))
       return;			/* Valgrind internal */
@@ -891,12 +900,14 @@ getsockdetails(Int fd, Bool xml)
 void VG_(show_open_fds) (const HChar* when, Bool xml)
 {
    OpenFd *i;
-   int non_std = 0;
+   int std = 0;
 
-   for (i = allocated_fds; i; i = i->next) {
-      if (i->fd > 2)
-         non_std++;
+   for (int index = 0; index < 3; index++) {
+      if (std_fds[index])
+         std++;
    }
+
+   int non_std = fd_count - std;
 
    /* If we are running quiet and there are either no open file descriptors
       or not tracking all fds, then don't report anything.  */
@@ -911,7 +922,7 @@ void VG_(show_open_fds) (const HChar* when, Bool xml)
    }
 
    for (i = allocated_fds; i; i = i->next) {
-      if (i->fd <= 2 && VG_(clo_track_fds) < 2)
+      if ((i->fd <= 2) && std_fds[i->fd] && VG_(clo_track_fds) < 2)
           continue;
 
       if (xml) {
