@@ -660,10 +660,14 @@ const HChar *ML_(find_fd_recorded_by_fd)(Int fd)
 }
 
 static
-HChar *unix_to_name(struct vki_sockaddr_un *sa, UInt len, HChar *name)
+HChar *unix_to_name(struct vki_sockaddr_un *sa, UInt len, HChar *name, Bool xml)
 {
    if (sa == NULL || len == 0 || sa->sun_path[0] == '\0') {
-      VG_(sprintf)(name, "<unknown>");
+      if (xml) {
+         VG_(sprintf)(name, "unknown");
+      } else {
+         VG_(sprintf)(name, "<unknown>");
+      }
    } else {
       VG_(sprintf)(name, "%s", sa->sun_path);
    }
@@ -672,12 +676,20 @@ HChar *unix_to_name(struct vki_sockaddr_un *sa, UInt len, HChar *name)
 }
 
 static
-HChar *inet_to_name(struct vki_sockaddr_in *sa, UInt len, HChar *name)
+HChar *inet_to_name(struct vki_sockaddr_in *sa, UInt len, HChar *name, Bool xml)
 {
    if (sa == NULL || len == 0) {
-      VG_(sprintf)(name, "<unknown>");
+      if (xml) {
+         VG_(sprintf)(name, "unknown");
+      } else {
+         VG_(sprintf)(name, "<unknown>");
+      }
    } else if (sa->sin_port == 0) {
-      VG_(sprintf)(name, "<unbound>");
+      if (xml) {
+         VG_(sprintf)(name, "unbound");
+      } else {
+         VG_(sprintf)(name, "<unbound>");
+      }
    } else {
       UInt addr = VG_(ntohl)(sa->sin_addr.s_addr);
       VG_(sprintf)(name, "%u.%u.%u.%u:%u",
@@ -737,12 +749,20 @@ void inet6_format(HChar *s, const UChar ip[16])
 }
 
 static
-HChar *inet6_to_name(struct vki_sockaddr_in6 *sa, UInt len, HChar *name)
+HChar *inet6_to_name(struct vki_sockaddr_in6 *sa, UInt len, HChar *name, Bool xml)
 {
    if (sa == NULL || len == 0) {
-      VG_(sprintf)(name, "<unknown>");
+      if (xml) {
+         VG_(sprintf)(name, "unknown");
+      } else {
+         VG_(sprintf)(name, "<unknown>");
+      }
    } else if (sa->sin6_port == 0) {
-      VG_(sprintf)(name, "<unbound>");
+      if (xml) {
+         VG_(sprintf)(name, "unbound");
+      } else {
+         VG_(sprintf)(name, "<unbound>");
+      }
    } else {
       HChar addr[100];    // large enough
       inet6_format(addr, (void *)&(sa->sin6_addr));
@@ -753,10 +773,10 @@ HChar *inet6_to_name(struct vki_sockaddr_in6 *sa, UInt len, HChar *name)
 }
 
 /*
- * Try get some details about a socket.
+ * Try to get some details about a socket.
  */
 static void
-getsockdetails(Int fd)
+getsockdetails(Int fd, Bool xml)
 {
    union u {
       struct vki_sockaddr a;
@@ -777,13 +797,27 @@ getsockdetails(Int fd)
          struct vki_sockaddr_in paddr;
          Int plen = sizeof(struct vki_sockaddr_in);
 
+         HChar *local_name = inet_to_name(&(laddr.in), llen, lname, xml);
+
+         if (xml) {
+            VG_(printf_xml)("  <domain>AF_INET</domain>\n");
+            VG_(printf_xml)("  <laddr>%s</laddr>\n", local_name);
+         }
+
          if (VG_(getpeername)(fd, (struct vki_sockaddr *)&paddr, &plen) != -1) {
-            VG_(message)(Vg_UserMsg, "Open AF_INET socket %d: %s <-> %s\n", fd,
-                         inet_to_name(&(laddr.in), llen, lname),
-                         inet_to_name(&paddr, plen, pname));
-         } else {
+
+            HChar *peer_name = inet_to_name(&paddr, plen, pname, xml);
+
+            if (xml) {
+               VG_(printf_xml)("  <paddr>%s</paddr>\n", peer_name);
+            } else {
+               VG_(message)(Vg_UserMsg, "Open AF_INET socket %d: %s <-> %s\n", fd,
+                           local_name,
+                           peer_name);
+            }
+         } else if (!xml) {
             VG_(message)(Vg_UserMsg, "Open AF_INET socket %d: %s <-> unbound\n",
-                         fd, inet_to_name(&(laddr.in), llen, lname));
+                         fd, local_name);
          }
          return;
          }
@@ -793,35 +827,68 @@ getsockdetails(Int fd)
          struct vki_sockaddr_in6 paddr;
          Int plen = sizeof(struct vki_sockaddr_in6);
 
-         if (VG_(getpeername)(fd, (struct vki_sockaddr *)&paddr, &plen) != -1) {
-            VG_(message)(Vg_UserMsg, "Open AF_INET6 socket %d: %s <-> %s\n", fd,
-                         inet6_to_name(&(laddr.in6), llen, lname),
-                         inet6_to_name(&paddr, plen, pname));
-         } else {
-            VG_(message)(Vg_UserMsg, "Open AF_INET6 socket %d: %s <-> unbound\n",
-                         fd, inet6_to_name(&(laddr.in6), llen, lname));
+         HChar *local_name = inet6_to_name(&(laddr.in6), llen, lname, xml);
+
+         if (xml) {
+            VG_(printf_xml)("  <domain>AF_INET6</domain>\n");
+            VG_(printf_xml)("  <laddr>%s</laddr>\n", local_name);
          }
+
+         if (VG_(getpeername)(fd, (struct vki_sockaddr *)&paddr, &plen) != -1) {
+
+            HChar *peer_name = inet6_to_name(&paddr, plen, pname, xml);
+
+            if (xml) {
+               VG_(printf_xml)("  <paddr>%s</paddr>\n", peer_name);
+            } else {
+               VG_(message)(Vg_UserMsg, "Open AF_INET6 socket %d: %s <-> %s\n", fd,
+                           local_name, peer_name);
+            }
+
+         } else if (!xml) {
+            VG_(message)(Vg_UserMsg, "Open AF_INET6 socket %d: %s <-> unbound\n",
+                         fd, local_name);
+         }
+
          return;
          }
       case VKI_AF_UNIX: {
          static char lname[256];
-         VG_(message)(Vg_UserMsg, "Open AF_UNIX socket %d: %s\n", fd,
-                      unix_to_name(&(laddr.un), llen, lname));
+         HChar *unix_name = unix_to_name(&(laddr.un), llen, lname, xml);
+
+         if (xml) {
+            VG_(printf_xml)("  <domain>AF_UNIX</domain>\n");
+            VG_(printf_xml)("  <laddr>%s</laddr>\n", unix_name);
+         } else {
+            VG_(message)(Vg_UserMsg, "Open AF_UNIX socket %d: %s\n", fd,
+                                 unix_name);
+         }
+
          return;
          }
       default:
-         VG_(message)(Vg_UserMsg, "Open pf-%d socket %d:\n",
+
+         if (xml) {
+            VG_(printf_xml)("  <domain>pf-%d</domain>\n", laddr.a.sa_family);
+         } else {
+            VG_(message)(Vg_UserMsg, "Open pf-%d socket %d:\n",
                       laddr.a.sa_family, fd);
+         }
+
          return;
       }
    }
 
-   VG_(message)(Vg_UserMsg, "Open socket %d:\n", fd);
+   if (xml) {
+      VG_(printf_xml)("  <domain>NULL</domain>\n");
+   } else {
+      VG_(message)(Vg_UserMsg, "Open socket %d:\n", fd);
+   }
 }
 
 
 /* Dump out a summary, and a more detailed list, of open file descriptors. */
-void VG_(show_open_fds) (const HChar* when)
+void VG_(show_open_fds) (const HChar* when, Bool xml)
 {
    OpenFd *i;
    int non_std = 0;
@@ -838,38 +905,62 @@ void VG_(show_open_fds) (const HChar* when)
        && (VG_(clo_verbosity) == 0))
       return;
 
-   VG_(message)(Vg_UserMsg, "FILE DESCRIPTORS: %d open (%d std) %s.\n",
+   if (!xml) {
+      VG_(message)(Vg_UserMsg, "FILE DESCRIPTORS: %d open (%d std) %s.\n",
                 fd_count, fd_count - non_std, when);
+   }
 
    for (i = allocated_fds; i; i = i->next) {
       if (i->fd <= 2 && VG_(clo_track_fds) < 2)
           continue;
 
+      if (xml) {
+         VG_(printf_xml)("<fdleak>\n");
+         VG_(printf_xml)("  <fd>%d</fd>\n", i->fd);
+      }
+
       if (i->pathname) {
-         VG_(message)(Vg_UserMsg, "Open file descriptor %d: %s\n", i->fd,
+         if (xml) {
+            VG_(printf_xml)("  <pathname>%s</pathname>\n", i->pathname);
+         } else {
+            VG_(message)(Vg_UserMsg, "Open file descriptor %d: %s\n", i->fd,
                       i->pathname);
+         }
       } else {
          Int val;
          Int len = sizeof(val);
 
          if (VG_(getsockopt)(i->fd, VKI_SOL_SOCKET, VKI_SO_TYPE, &val, &len)
-             == -1) {
-            VG_(message)(Vg_UserMsg, "Open file descriptor %d:\n", i->fd);
+            == -1) {
+            if (!xml)
+               VG_(message)(Vg_UserMsg, "Open file descriptor %d:\n", i->fd);
          } else {
-            getsockdetails(i->fd);
+            getsockdetails(i->fd, xml);
          }
+
       }
 
       if(i->where) {
          VG_(pp_ExeContext)(i->where);
-         VG_(message)(Vg_UserMsg, "\n");
+         if (!xml) {
+            VG_(message)(Vg_UserMsg, "\n");
+         }
       } else {
-         VG_(message)(Vg_UserMsg, "   <inherited from parent>\n");
-         VG_(message)(Vg_UserMsg, "\n");
+         if (!xml) {
+            VG_(message)(Vg_UserMsg, "   <inherited from parent>\n");
+            VG_(message)(Vg_UserMsg, "\n");
+         }
+      }
+
+      if (xml) {
+         VG_(printf_xml)("</fdleak>\n\n");
       }
    }
 
-   VG_(message)(Vg_UserMsg, "\n");
+   if (!xml) {
+      VG_(message)(Vg_UserMsg, "\n");
+   }
+
 }
 
 /* If /proc/self/fd doesn't exist (e.g. you've got a Linux kernel that doesn't

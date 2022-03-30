@@ -424,7 +424,7 @@ int handle_gdb_valgrind_command (char *mon, OutputSink *sink_wanted_at_return)
          break;
       case  7: /* open_fds */
          if (VG_(clo_track_fds))
-            VG_(show_open_fds) ("");
+            VG_(show_open_fds) ("", False);
          else
             VG_(gdb_printf)
                ("Valgrind must be started with --track-fds=[yes|all]"
